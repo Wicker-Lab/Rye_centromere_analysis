@@ -1,0 +1,266 @@
+#!/usr/bin/perl
+
+use lib '/home/wicker/data/WICKERsoft/';
+use Biomodule;
+
+
+if(@ARGV < 5) {
+	print "1.= log from blast_compare_chromosome\n";
+	print "2.= max dist (cutoff) for non-colinear hits\n";
+	print "3.= window size\n";
+	print "4.= sliding step\n";
+	print "5.= -h to write header or -n to skip header\n";
+	print "6.= -v for verbose output, comment out line chomp(\$keep = <STDIN>);\n";
+	exit;
+	}
+
+
+$max_dist = $ARGV[1];
+$date_window = $ARGV[2];
+$step = $ARGV[3];
+$max_delta1 = 3000;
+
+# for verbose output if needed
+$ver = 0;
+if ($ARGV[5] eq '-v') {
+        $ver = 1;
+        }
+	
+
+# start log file 
+($pair) = ($ARGV[0] =~ /log_chr_comp_(\S+).tab/);
+$log = "log_chr_date_$pair\_win$date_window";
+open(LOG,">$log");
+
+
+if ($ARGV[4] eq '-h') {
+	print LOG "pos1\tpos2\ttype\tset_ID\tset_ID2\taln\tsim\tTI\tTV\tage\tSTD\tflag\tID\n";
+	}
+
+
+
+# propose set ID, manually enter if it is not ok
+($spe1,$var1,$chr_ID1,$flag1, $spe2,$var2,$chr_ID2,$flag2) = ($ARGV[0] =~ /log_chr_comp_([^_]+)_(\S+)_(chr[^_]+)_([^_]+)__x__([^_]+)_(\S+)_(chr[^_]+)_([^_]+).tab/);
+
+
+# make cutom reformatting of names
+$var1 =~ s/_[vV\d]+$//;
+$var2 =~ s/_[vV\d]+$//;
+$var2 =~ s/Weining_[^_]+_//;
+$set_ID = "$var1\_x_$var2";
+
+print "keep set ID $set_ID?";
+
+chomp($keep = <STDIN>);
+if ($keep ne '') {
+	$set_ID = $keep;
+	}
+
+$set_ID2 = "$set_ID\_$flag1";
+
+
+# collect all info in 2D array ++++++++++++++++++++++
+$first = 1;
+
+open (IN, "<$ARGV[0]");
+while (<IN>){
+
+	($p) = /^(\S.+)$/;
+	if (($p) && ($first ==0)) {
+
+		$p =~ s/\s+/ /g;
+		@data = split(' ',$p);
+	
+		$data[4] =~ s/%//;
+
+		$cols = @data;
+
+		# exclude the old dating
+		for($i=0;$i<@data-2;$i++) {
+			$all[$count][$i] = $data[$i];
+			}
+		# add flag for later
+		$all[$count][9] = 1; 	
+		$count++;
+		}
+
+	# get info from header
+	($ch1,$l1,$ch2,$l2) = /CHR1=(\S+)\s+LEN1=(\d+)\s+CHR2=(\S+)\s+LEN2=(\d+)/;	
+	if (($ch1) && ($first ==1)) {
+		$chr1 = $ch1;
+		$len1 = $l1;
+		$chr2 = $ch2;
+                $len2 = $l2;
+		($dna1) = &pure_sequence($chr1);
+		($dna2) = &pure_sequence($chr2);
+		print "$chr1\t$len1\n";
+		print "$chr2\t$len2\n";
+		}
+
+	$first =0;	
+
+	}
+
+print "total values\t$count\n";
+print "columns:\t$cols\n";
+
+
+
+# loop thru data and flag non colinear hits
+# .. by caclulating median over 30 values and flagging those that are way off
+$window = 30;
+for($i=0;$i<($count-$window);$i++) {
+
+	# flag generally all hits that are reverse
+        if ($all[$i][5] eq 'rev') {
+                $all[$i][9] = 0;
+                }
+	
+
+	# display current line just for control
+        $line = $i;
+        for($j=0;$j<10;$j++) {
+                $line .= "\t$j=$all[$i][$j]";
+                }
+	if ($ver ==1) {	
+		print "$line ----\n";
+		}
+
+        # collect values from chr 2 for window
+        @win = ();
+        $c = 0;
+        for($j=$i;$j<($i+$window);$j++) {
+                $win[$c][0] = $j;
+		$win[$c][1] = $all[$j][2];
+		$win[$c][2] = '';
+                $c++;
+                }
+
+
+        # calc median position of pos2 in window
+        @sort = sort{$a->[1] <=> $b->[1]}(@win);
+        @win = @sort;
+
+        $mid = int($window/2);
+        $median = int($win[$mid][1]/1000);
+
+        # flag all hits that are >max_dist away the median
+        for($j=0;$j<$c;$j++) {
+
+                $rem = '';
+
+                $delta = abs($win[$j][1]-$median*1000);
+
+                # if value is far from median, flad the entry
+                if ($delta > $max_dist) {
+                        $val = $win[$j][0];
+                        $all[$val][9] = 0;
+                        $rem = "*** ";
+			$win[$j][2] = "*** ";
+                        }
+
+                if ($j==$mid) {
+                        $rem .= $median;
+                        }
+		if ($ver ==1) {
+			print "$i\t$j\t$win[$j][0]\t$win[$j][1]\t$rem\n";
+			}
+                }
+
+
+	# show verbose output, if requested	
+	if ($ver ==1) {	
+		print "\nreorder:\n";	
+		# show correct order again
+		for($j=$i;$j<($i+$window);$j++) {
+		
+			$line = "$i\t$j";
+
+			for($k=0;$k<10;$k++) {
+				$line .= "\t$all[$j][$k]";
+				}
+			print "$line\n";
+			}
+		}	
+
+
+        }
+
+
+# make new array only with clean hits
+print "\nmake new array only with clean hits\n";
+@clean = ();
+$count2 = 0;
+
+for($i=0;$i<$count;$i++) {
+
+	# only collect entries which were not flaged in the previous step
+	if ($all[$i][9] ==1) {
+		for($j=0;$j<10;$j++) {
+			$clean[$count2][$j] = $all[$i][$j];
+			}
+		$count2++;
+		}	
+	}
+
+print "clean data: $count2 entries\n\n";
+
+@all = @clean;
+
+
+# display clean hits just for control, if wanted
+if ($ARGV[4] eq '-v2') {
+for($i=0;$i<$count2;$i++) {
+        # display current line just for control
+        $line = $i;
+        for($j=0;$j<5;$j++) {
+                $line .= "\t$j=$all[$i][$j]";
+                }
+        print "$line\n";
+	}
+}
+
+
+
+# loop thru array and date pairs in windows
+print "loop thru array and date pairs in windows of $date_window, step size $step\n";
+$count_win = 0;
+for($i=0;$i<($count2-$date_window);$i+=$step) {	
+
+	$count_win++;
+
+        $sum_aln = 0;
+        $TI = 0;
+        $TV = 0;
+
+        for($j=$i;$j<$i+$date_window;$j++) {
+                $sum_aln += $all[$j][6];
+                $TI += $all[$j][7];
+                $TV += $all[$j][8];
+                }
+
+        ($age,$std) = &seq2date($sum_aln,$TI,$TV);
+
+        $mya = $age/1000000;
+        $STD = $std/1000000;
+        $mya = sprintf("%.04f",$mya);
+        $STD = sprintf("%.04f",$STD);
+
+	$mut = $sum_aln-($TI+$TV);
+	$sim = sprintf("%.02f",($mut/$sum_aln*100));
+
+	$line = $all[$i][0];
+	for($j=1;$j<9;$j++) {
+		$line .= "\t$all[$i][$j]";
+		}
+		
+	$line = "$all[$i][1]\t$all[$i][2]\tdivg\t$set_ID\t$set_ID2\t$sum_aln\t$sim\t$TI\t$TV\t$mya\t$STD\t$flag1\t$chr_ID1";	
+	print "$i\t$count_win\t$line\n";
+	print LOG "$line\n";	
+
+	}
+
+print "wrote $log ($count_win entries)\n";
+
+
+
