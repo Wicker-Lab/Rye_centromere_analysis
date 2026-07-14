@@ -1,0 +1,11 @@
+
+Note to Insertion age analysis in panel c:
+For RLG_Qinta from S. cereale, only 771 of the total 1298 identified full-length copies were used.
+The reason for this was that these 771 copies belong to the previously described RLG_Quinta subfamily A (Heuberger et al., 2024, Mobile DNA 15:16; doi.org/10.1186/s13100-024-00326-9), while the other 527 belong to a subfamily that is not found in T. aestivum and T. monococcum.
+Additionally, 2 RLG_Abia copies from rye were discarded, because they are located on chromosome 3R at positions higher than 1 Gb, but the script used to process the data was only designed to process chromosomal positions smaller than 1 Gb.
+
+
+
+ 
+
+
